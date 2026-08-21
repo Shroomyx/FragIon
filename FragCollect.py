@@ -451,7 +451,7 @@ if st.session_state.session_data:
                     # Distribute across columns based on index
                     with cols[index % 4]:
                         # Combine ID, type, and formula in the caption
-                        caption_text = f"**ID:** {row.get('id', 'N/A')}\n\n**{row.get('type', '')}\n\n**{row.get('exact_mass', '')}**\n\n{row.get('formula', '')}"
+                        caption_text = f"**ID:** {row.get('id', 'N/A')}\n\n**{row.get('type', '')}**\n\n**Mass:** {row.get('exact_mass', '')}\n\n{row.get('formula', '')}"
                         st.image(img, use_container_width=True)
                         st.markdown(caption_text)
 
