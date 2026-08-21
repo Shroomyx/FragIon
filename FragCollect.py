@@ -337,8 +337,8 @@ with st.sidebar:
     
     # Reference Section (Now below Compound Info)
     st.subheader("Additional Information")
-    st.text_input("Name Abbreviation", value="SCS", key="meta_researcher")
-    st.text_input("Comments", key="meta_comment")
+    st.text_input("Name Abbreviation", key="meta_researcher", placeholder="e.g., SCS")
+    st.text_input("Comments", key="meta_comment", placeholder="e.g., shitty paper")
 
     st.divider()
 
