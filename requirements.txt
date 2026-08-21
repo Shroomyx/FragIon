@@ -1,3 +1,5 @@
 streamlit
 pandas
 rdkit
+requests
+git+https://github.com/pnnl/MSAC.git
