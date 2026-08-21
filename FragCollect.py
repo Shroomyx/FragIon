@@ -4,7 +4,6 @@ import pandas as pd
 from datetime import datetime
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors, Draw, rdinchi
-import pyperclip  # Access system clipboard directly
 import uuid
 
 st.set_page_config(page_title="MS/MS Session Builder", layout="wide")
@@ -142,13 +141,6 @@ def preview_structure_dialog(inchi_str):
 
 
 # --- Callbacks ---
-def paste_clipboard_inchi():
-    st.session_state.inchi_input = pyperclip.paste().strip()
-
-
-def paste_clipboard_formula():
-    st.session_state.formula_input = pyperclip.paste().strip()
-
 
 def set_entry_type(entry_type):
     st.session_state.entry_type = entry_type
@@ -300,7 +292,7 @@ with col_type_nl:
 st.caption(f"Currently adding as: **{st.session_state.entry_type}**")
 
 # InChI Input & Action Buttons (Row 1)
-col_input, col_paste, col_add = st.columns([3.5, 1.2, 1.2])
+col_input, col_add = st.columns([4.5, 1.5])
 
 with col_input:
     st.text_input(
@@ -309,10 +301,10 @@ with col_input:
         placeholder="InChI=1S/..."
     )
 
-with col_paste:
+with col_add:
     st.write("")
     st.write("")
-    st.button("📋 Paste Clipboard", on_click=paste_clipboard_inchi, use_container_width=True, key="paste_inchi_btn")
+    st.button("➕ Add Structure", type="primary", on_click=add_structure, use_container_width=True)
 
 with col_add:
     st.write("")
@@ -326,18 +318,18 @@ with col_check:
         preview_structure_dialog(st.session_state.inchi_input)
 
 # Formula-only entry (no structure available)
+# Formula-only entry (no structure available)
 with st.expander("➕ Add a formula-only entry (no structure available)"):
-    col_f_input, col_f_paste, col_f_add = st.columns([3.5, 1.2, 1.2])
+    col_f_input, col_f_add = st.columns([4.5, 1.5])
+    
     with col_f_input:
         st.text_input("Molecular Formula:", key="formula_input", placeholder="e.g. C6H12O6 or C6H5+")
-    with col_f_paste:
-        st.write("")
-        st.write("")
-        st.button("📋 Paste Clipboard", on_click=paste_clipboard_formula, use_container_width=True, key="paste_formula_btn")
+        
     with col_f_add:
         st.write("")
         st.write("")
         st.button("➕ Add Formula", on_click=add_formula_entry, use_container_width=True, key="add_formula_btn")
+        
     st.caption("Structure fields (SMILES / InChI / InChIKey) will be stored as \"NA\" for these entries.")
 
 # Display feedback messages triggered by callbacks
