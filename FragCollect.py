@@ -148,8 +148,22 @@ def set_entry_type(entry_type):
 
 def build_metadata_fields():
     """Collects the sidebar metadata that gets copied onto every table row."""
+    parent_inchi = st.session_state.get("meta_parent_inchi", "").strip()
+    parent_mz = ""
+    parent_smiles = ""
+    
+    # Automatically calculate Parent Mass and SMILES if a valid InChI is in the sidebar
+    if parent_inchi:
+        p_data, _, _ = process_inchi(parent_inchi)
+        if p_data:
+            parent_mz = p_data['exact_mass']
+            parent_smiles = p_data['smiles']
+            parent_inchi = p_data['inchi']  # Use the canonicalized InChI
+
     return {
-        'parent_ion_mz': st.session_state.get("meta_parent_ion", ""),
+        'parent_inchi': parent_inchi,
+        'parent_mz': parent_mz,
+        'parent_smiles': parent_smiles,
         'adduct': st.session_state.get("meta_adduct", ""),
         'ionization_mode': st.session_state.get("meta_ionization", ""),
         'ion_source': st.session_state.get("meta_source", ""),
@@ -158,7 +172,6 @@ def build_metadata_fields():
         'mechanism_in_reference': "Yes" if st.session_state.get("meta_mechanism", False) else "No",
         'compound_class': st.session_state.get("meta_compound_class", ""),
     }
-
 
 def add_structure():
     inchi_val = st.session_state.inchi_input.strip()
@@ -246,8 +259,44 @@ with st.sidebar:
     st.caption("Applies automatically to every structure or formula you add.")
 
     st.subheader("Precursor Info")
-    st.text_input("Parent Ion m/z", key="meta_parent_ion")
+    # New Parent InChI input
+    parent_inchi_input = st.text_input("Parent Ion InChI", key="meta_parent_inchi", placeholder="InChI=1S/...")
+    
+    # If the user enters a Parent InChI, preview the generated data & offer to add it to the table
+    if parent_inchi_input.strip():
+        p_data, _, p_err = process_inchi(parent_inchi_input.strip())
+        if p_data:
+            st.success(f"**Parent m/z:** {p_data['exact_mass']:.4f}\n\n**Parent SMILES:** {p_data['smiles']}")
+            
+            # Button to add Parent Ion directly to the session table
+            if st.button("➕ Add Parent Ion to Table", key="add_parent_sidebar_btn", use_container_width=True):
+                new_parent_record = {
+                    'id': str(uuid.uuid4())[:8],
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'type': 'Parent ion',
+                    'formula': p_data['formula'],
+                    'exact_mass': p_data['exact_mass'],
+                    'smiles': p_data['smiles'],
+                    'inchi': p_data['inchi'],
+                    'inchikey': p_data['inchikey'],
+                    **build_metadata_fields(),
+                }
+                
+                # Prevent exact duplicate additions of the parent ion
+                if not any(r.get('inchikey') == p_data['inchikey'] and r['type'] == 'Parent ion' for r in st.session_state.session_data):
+                    st.session_state.session_data.append(new_parent_record)
+                    st.session_state.feedback = (
+                        "toast", 
+                        f"Added Parent ion: {p_data['formula']} (m/z {p_data['exact_mass']:.4f})"
+                    )
+                    st.rerun()  # Instantly refresh the UI to show the table update
+                else:
+                    st.warning("This Parent ion is already in your table.")
+        else:
+            st.error("Invalid InChI for Parent Ion.")
+
     st.text_input("Adduct", value="[M+H]+", key="meta_adduct")
+    st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
     st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
 
     st.subheader("Instrumentation")
