@@ -169,11 +169,15 @@ def build_metadata_fields():
         'parent_iupac': st.session_state.get("meta_iupac", ""),
         'compound_class': st.session_state.get("meta_compound_class", ""),
         'adduct': st.session_state.get("meta_adduct", ""),
+        'chromatography': st.session_state.get("meta_chromatography", ""),
+        'instrument': st.session_state.get("meta_instrument", ""),
         'ionization_mode': st.session_state.get("meta_ionization", ""),
         'ion_source': st.session_state.get("meta_source", ""),
-        'instrument': st.session_state.get("meta_instrument", ""),
+        'collision_energy': st.session_state.get("meta_collision", ""),
         'doi': st.session_state.get("meta_doi", ""),
         'mechanism_in_reference': "Yes" if st.session_state.get("meta_mechanism", False) else "No",
+        'name': st.session_state.get("meta_researcher", ""),
+        'comment': st.session_state.get("meta_comment", ""),
     }
 
 def add_structure():
@@ -315,19 +319,26 @@ with st.sidebar:
     st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
 
     st.subheader("Instrumentation")
+    st.selectbox("Chromatography Type", ["LC", "GC"], key="meta_chromatography")
     st.text_input("Ion Source", value="ESI", key="meta_source")
-    st.text_input("Instrument", value="Q-TOF", key="meta_instrument")
+    st.text_input("Instrument", value="Orbitrap", key="meta_instrument")
+    st.text_input("Collision Energy (eV)", value="30", key="meta_collision")
 
     # Reordered Compound Info Section
     st.subheader("Compound Information")
-    st.text_input("Compound Name (Parent Ion)", key="meta_compound_name", placeholder="e.g., Caffeine")
-    st.text_input("Compound Class", key="meta_compound_class", placeholder="e.g., Alkaloid")
+    st.text_input("Compound Name (Parent Ion)", key="meta_compound_name", placeholder="e.g., OH-Solanidine")
+    st.text_input("Compound Class", key="meta_compound_class", placeholder="e.g., OH-Solanidine")
     st.text_input("IUPAC (Parent Ion)", key="meta_iupac", placeholder="Auto-generated if available...")
 
     # Reference Section (Now below Compound Info)
     st.subheader("Reference")
     st.text_input("Reference DOI", key="meta_doi")
     st.toggle("Mechanism Included in Reference", key="meta_mechanism")
+    
+    # Reference Section (Now below Compound Info)
+    st.subheader("Additional Information")
+    st.text_input("Name Abbreviation", value="SCS", key="meta_researcher")
+    st.text_input("Comments", key="meta_comment")
 
     st.divider()
 
@@ -448,21 +459,27 @@ if st.session_state.session_data:
 st.subheader("Current Session Entries")
 
 if st.session_state.session_data:
-    df_session = pd.DataFrame(st.session_state.session_data)
-
-    edited_df = st.data_editor(
-        df_session,
+    # 1. Pass the raw list of dicts directly to the editor (NO pd.DataFrame here)
+    # 2. Add a unique key so Streamlit can firmly track your manual edits
+    edited_data = st.data_editor(
+        st.session_state.session_data,
         num_rows="dynamic",
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        key="main_session_editor"
     )
-    st.session_state.session_data = edited_df.to_dict('records')
+    
+    # Save the edits right back into the session state
+    st.session_state.session_data = edited_data
 
     st.divider()
 
     col_dl, col_clear = st.columns([3, 1])
+    
+    # Convert to a DataFrame ONLY for the CSV export
+    export_df = pd.DataFrame(st.session_state.session_data)
     csv_filename = f"msms_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    csv_bytes = edited_df.to_csv(index=False).encode('utf-8')
+    csv_bytes = export_df.to_csv(index=False).encode('utf-8')
 
     with col_dl:
         st.download_button(
