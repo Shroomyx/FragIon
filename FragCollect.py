@@ -168,16 +168,18 @@ def set_entry_type(entry_type):
 def build_metadata_fields():
     """Collects the sidebar metadata that gets copied onto every table row."""
     parent_inchi = st.session_state.get("meta_parent_inchi", "").strip()
+    adduct_str = st.session_state.get("meta_adduct", "[M+H]+").strip()
+    
     parent_mz = ""
     parent_smiles = ""
     
-    # Automatically calculate Parent Mass and SMILES if a valid InChI is in the sidebar
     if parent_inchi:
         p_data, _, _ = process_inchi(parent_inchi)
         if p_data:
-            parent_mz = p_data['exact_mass']
+            calc_mz, err = calculate_adduct_mz(p_data['exact_mass'], adduct_str)
+            parent_mz = calc_mz if calc_mz is not None else "Invalid Adduct"
             parent_smiles = p_data['smiles']
-            parent_inchi = p_data['inchi']  # Use the canonicalized InChI
+            parent_inchi = p_data['inchi']
 
     return {
         'parent_inchi': parent_inchi,
@@ -186,16 +188,12 @@ def build_metadata_fields():
         'parent_name': st.session_state.get("meta_compound_name", ""),
         'parent_iupac': st.session_state.get("meta_iupac", ""),
         'compound_class': st.session_state.get("meta_compound_class", ""),
-        'adduct': st.session_state.get("meta_adduct", ""),
-        'chromatography': st.session_state.get("meta_chromatography", ""),
-        'instrument': st.session_state.get("meta_instrument", ""),
+        'adduct': adduct_str,
         'ionization_mode': st.session_state.get("meta_ionization", ""),
         'ion_source': st.session_state.get("meta_source", ""),
-        'collision_energy': st.session_state.get("meta_collision", ""),
+        'instrument': st.session_state.get("meta_instrument", ""),
         'doi': st.session_state.get("meta_doi", ""),
         'mechanism_in_reference': "Yes" if st.session_state.get("meta_mechanism", False) else "No",
-        'name': st.session_state.get("meta_researcher", ""),
-        'comment': st.session_state.get("meta_comment", ""),
     }
 
 def add_structure():
@@ -284,57 +282,69 @@ with st.sidebar:
     st.header("Global Metadata")
     st.caption("Applies automatically to every structure or formula you add.")
 
-    st.subheader("Precursor Info")
-    parent_inchi_input = st.text_input("Parent Ion InChI", key="meta_parent_inchi", placeholder="InChI=1S/...")
+    # Free-text Adduct Input parsed by MSAC
+    adduct_input = st.text_input(
+        "Adduct Type (MSAC format)", 
+        value="[M+H]+", 
+        key="meta_adduct", 
+        placeholder="e.g. [M+H]+, [2M+Na]+, [M+H-H2O]+"
+    )
+    st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
+    
+    parent_inchi_input = st.text_input(
+        "Parent Ion InChI (Neutral Structure)", 
+        key="meta_parent_inchi", 
+        placeholder="InChI=1S/..."
+    )
     
     if parent_inchi_input.strip():
         p_data, _, p_err = process_inchi(parent_inchi_input.strip())
         if p_data:
-            # --- NEW: Auto-fetch IUPAC from NIH API when a new InChI is pasted ---
+            # Auto-fetch IUPAC from NIH API when a new InChI is pasted
             if st.session_state.get("last_fetched_inchi") != parent_inchi_input.strip():
                 try:
-                    # Ping the CACTUS API for the IUPAC name
                     res = requests.get(f"https://cactus.nci.nih.gov/chemical/structure/{p_data['smiles']}/iupac_name", timeout=2.5)
-                    if res.status_code == 200:
-                        st.session_state.meta_iupac = res.text  # Auto-fills the text box below
-                    else:
-                        st.session_state.meta_iupac = ""
+                    st.session_state.meta_iupac = res.text if res.status_code == 200 else ""
                 except Exception:
-                    pass  # If offline or API fails, just fail silently and let the user type it
-                
-                # Remember this InChI so we don't spam the API on every app interaction
+                    pass 
                 st.session_state.last_fetched_inchi = parent_inchi_input.strip()
-            # ----------------------------------------------------------------------
             
-            st.success(f"**Parent m/z:** {p_data['exact_mass']:.4f}\n\n**Parent SMILES:** {p_data['smiles']}")
+            # Compute charged parent m/z using MSAC
+            parent_ion_mz, msac_error = calculate_adduct_mz(p_data['exact_mass'], adduct_input)
             
-            if st.button("➕ Add Parent Ion to Table", key="add_parent_sidebar_btn", use_container_width=True):
-                new_parent_record = {
-                    'id': str(uuid.uuid4())[:8],
-                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'type': 'Parent ion',
-                    'formula': p_data['formula'],
-                    'exact_mass': p_data['exact_mass'],
-                    'smiles': p_data['smiles'],
-                    'inchi': p_data['inchi'],
-                    'inchikey': p_data['inchikey'],
-                    **build_metadata_fields(),
-                }
+            if parent_ion_mz is not None:
+                st.success(
+                    f"**Neutral Mass:** {p_data['exact_mass']:.4f} Da\n\n"
+                    f"**Parent Ion m/z ({adduct_input}):** {parent_ion_mz:.4f}\n\n"
+                    f"**Parent SMILES:** {p_data['smiles']}"
+                )
                 
-                if not any(r.get('inchikey') == p_data['inchikey'] and r['type'] == 'Parent ion' for r in st.session_state.session_data):
-                    st.session_state.session_data.append(new_parent_record)
-                    st.session_state.feedback = (
-                        "toast", 
-                        f"Added Parent ion: {p_data['formula']} (m/z {p_data['exact_mass']:.4f})"
-                    )
-                    st.rerun() 
-                else:
-                    st.warning("This Parent ion is already in your table.")
+                if st.button("➕ Add Parent Ion to Table", key="add_parent_sidebar_btn", use_container_width=True):
+                    new_parent_record = {
+                        'id': str(uuid.uuid4())[:8],
+                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'type': 'Parent ion',
+                        'formula': p_data['formula'],
+                        'exact_mass': parent_ion_mz,  # Charged m/z calculated via MSAC
+                        'smiles': p_data['smiles'],
+                        'inchi': p_data['inchi'],
+                        'inchikey': p_data['inchikey'],
+                        **build_metadata_fields(),
+                    }
+                    
+                    if not any(r.get('inchikey') == p_data['inchikey'] and r['type'] == 'Parent ion' for r in st.session_state.session_data):
+                        st.session_state.session_data.append(new_parent_record)
+                        st.session_state.feedback = (
+                            "toast", 
+                            f"Added Parent ion ({adduct_input} m/z {parent_ion_mz:.4f})"
+                        )
+                        st.rerun() 
+                    else:
+                        st.warning("This Parent ion is already in your table.")
+            else:
+                st.error(msac_error)
         else:
             st.error("Invalid InChI for Parent Ion.")
-
-    st.text_input("Adduct", value="[M+H]+", key="meta_adduct")
-    st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
 
     st.subheader("Instrumentation")
     st.selectbox("Chromatography Type", ["LC", "GC"], key="meta_chromatography")
