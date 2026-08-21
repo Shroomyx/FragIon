@@ -6,6 +6,7 @@ from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors, Draw, rdinchi
 import uuid
 import requests
+import msac
 
 st.set_page_config(page_title="MS/MS Session Builder", layout="wide")
 
@@ -43,7 +44,24 @@ if "last_added_img" not in st.session_state:
 if "last_added_caption" not in st.session_state:
     st.session_state.last_added_caption = None
 
+# ---- ADDUCT TYPE PROCESSING ---- #
 
+def calculate_adduct_mz(neutral_mass, adduct_str):
+    """
+    Parses any adduct string using PNNL MSAC and calculates the target m/z.
+    Returns (calculated_mz, None) on success or (None, error_msg) on error.
+    """
+    adduct_str = adduct_str.strip()
+    if not adduct_str:
+        return None, "Please enter an adduct string."
+    
+    try:
+        # MSAC calculates m/z given a neutral exact mass and adduct formula
+        calc_mz = msac.calculate_mz(neutral_mass, adduct_str)
+        return round(calc_mz, 4), None
+    except Exception as e:
+        return None, f"Invalid adduct string '{adduct_str}'. Example formats: [M+H]+, [2M+Na]+, [M+H-H2O]+"
+        
 # --- RDKit Processing Function (InChI -> SMILES / formula / mass) ---
 from rdkit.Chem import rdinchi # Add this to your imports at the top
 
