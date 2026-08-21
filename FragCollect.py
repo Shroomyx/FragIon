@@ -5,6 +5,7 @@ from datetime import datetime
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors, Draw, rdinchi
 import uuid
+import requests
 
 st.set_page_config(page_title="MS/MS Session Builder", layout="wide")
 
@@ -164,13 +165,15 @@ def build_metadata_fields():
         'parent_inchi': parent_inchi,
         'parent_mz': parent_mz,
         'parent_smiles': parent_smiles,
+        'parent_name': st.session_state.get("meta_compound_name", ""),
+        'parent_iupac': st.session_state.get("meta_iupac", ""),
+        'compound_class': st.session_state.get("meta_compound_class", ""),
         'adduct': st.session_state.get("meta_adduct", ""),
         'ionization_mode': st.session_state.get("meta_ionization", ""),
         'ion_source': st.session_state.get("meta_source", ""),
         'instrument': st.session_state.get("meta_instrument", ""),
         'doi': st.session_state.get("meta_doi", ""),
         'mechanism_in_reference': "Yes" if st.session_state.get("meta_mechanism", False) else "No",
-        'compound_class': st.session_state.get("meta_compound_class", ""),
     }
 
 def add_structure():
@@ -254,21 +257,35 @@ def add_formula_entry():
 
 
 # --- Sidebar Metadata ---
+# --- Sidebar Metadata ---
 with st.sidebar:
     st.header("Global Metadata")
     st.caption("Applies automatically to every structure or formula you add.")
 
     st.subheader("Precursor Info")
-    # New Parent InChI input
     parent_inchi_input = st.text_input("Parent Ion InChI", key="meta_parent_inchi", placeholder="InChI=1S/...")
     
-    # If the user enters a Parent InChI, preview the generated data & offer to add it to the table
     if parent_inchi_input.strip():
         p_data, _, p_err = process_inchi(parent_inchi_input.strip())
         if p_data:
+            # --- NEW: Auto-fetch IUPAC from NIH API when a new InChI is pasted ---
+            if st.session_state.get("last_fetched_inchi") != parent_inchi_input.strip():
+                try:
+                    # Ping the CACTUS API for the IUPAC name
+                    res = requests.get(f"https://cactus.nci.nih.gov/chemical/structure/{p_data['smiles']}/iupac_name", timeout=2.5)
+                    if res.status_code == 200:
+                        st.session_state.meta_iupac = res.text  # Auto-fills the text box below
+                    else:
+                        st.session_state.meta_iupac = ""
+                except Exception:
+                    pass  # If offline or API fails, just fail silently and let the user type it
+                
+                # Remember this InChI so we don't spam the API on every app interaction
+                st.session_state.last_fetched_inchi = parent_inchi_input.strip()
+            # ----------------------------------------------------------------------
+            
             st.success(f"**Parent m/z:** {p_data['exact_mass']:.4f}\n\n**Parent SMILES:** {p_data['smiles']}")
             
-            # Button to add Parent Ion directly to the session table
             if st.button("➕ Add Parent Ion to Table", key="add_parent_sidebar_btn", use_container_width=True):
                 new_parent_record = {
                     'id': str(uuid.uuid4())[:8],
@@ -282,14 +299,13 @@ with st.sidebar:
                     **build_metadata_fields(),
                 }
                 
-                # Prevent exact duplicate additions of the parent ion
                 if not any(r.get('inchikey') == p_data['inchikey'] and r['type'] == 'Parent ion' for r in st.session_state.session_data):
                     st.session_state.session_data.append(new_parent_record)
                     st.session_state.feedback = (
                         "toast", 
                         f"Added Parent ion: {p_data['formula']} (m/z {p_data['exact_mass']:.4f})"
                     )
-                    st.rerun()  # Instantly refresh the UI to show the table update
+                    st.rerun() 
                 else:
                     st.warning("This Parent ion is already in your table.")
         else:
@@ -302,10 +318,16 @@ with st.sidebar:
     st.text_input("Ion Source", value="ESI", key="meta_source")
     st.text_input("Instrument", value="Q-TOF", key="meta_instrument")
 
+    # Reordered Compound Info Section
+    st.subheader("Compound Information")
+    st.text_input("Compound Name (Parent Ion)", key="meta_compound_name", placeholder="e.g., Caffeine")
+    st.text_input("Compound Class", key="meta_compound_class", placeholder="e.g., Alkaloid")
+    st.text_input("IUPAC (Parent Ion)", key="meta_iupac", placeholder="Auto-generated if available...")
+
+    # Reference Section (Now below Compound Info)
     st.subheader("Reference")
     st.text_input("Reference DOI", key="meta_doi")
     st.toggle("Mechanism Included in Reference", key="meta_mechanism")
-    st.text_input("Compound Class", key="meta_compound_class")
 
     st.divider()
 
