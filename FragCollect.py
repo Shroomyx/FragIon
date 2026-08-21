@@ -304,12 +304,7 @@ with col_input:
 with col_add:
     st.write("")
     st.write("")
-    st.button("➕ Add Structure", type="primary", on_click=add_structure, use_container_width=True)
-
-with col_add:
-    st.write("")
-    st.write("")
-    st.button("➕ Add Structure", type="primary", on_click=add_structure, use_container_width=True)
+    st.button("➕ Add Structure", type="primary", on_click=add_structure, use_container_width=True, key="add_structure_btn")
 
 # Check Structure Row (Row 2)
 col_check, _ = st.columns([1.5, 4.4])
