@@ -297,7 +297,6 @@ with st.sidebar:
 
     st.text_input("Adduct", value="[M+H]+", key="meta_adduct")
     st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
-    st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
 
     st.subheader("Instrumentation")
     st.text_input("Ion Source", value="ESI", key="meta_source")
