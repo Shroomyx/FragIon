@@ -7,6 +7,7 @@ from rdkit.Chem import rdMolDescriptors, Draw, rdinchi
 import uuid
 import requests
 import msac
+from msac.calculate_input_mz import calculate_single_mz
 
 st.set_page_config(page_title="MS/MS Session Builder", layout="wide")
 
@@ -46,21 +47,59 @@ if "last_added_caption" not in st.session_state:
 
 # ---- ADDUCT TYPE PROCESSING ---- #
 
-def calculate_adduct_mz(neutral_mass, adduct_str):
+def calculate_adduct_mz(exact_mass, adduct_string):
     """
-    Parses any adduct string using PNNL MSAC and calculates the target m/z.
-    Returns (calculated_mz, None) on success or (None, error_msg) on error.
+    Convert user-facing MSAC adduct notation such as:
+        [M+H]+
+        [M+Na]+
+        [M-H]-
+        [M+H-H2O]+
+        [2M+Na]+
+
+    into the format expected by MSAC.
     """
-    adduct_str = adduct_str.strip()
-    if not adduct_str:
-        return None, "Please enter an adduct string."
-    
+
+    adduct_string = adduct_string.strip()
+
+    # Parse [ADDUCT]CHARGE
+    match = re.fullmatch(
+        r"\[(.+)\]([+-]|\d+[+-])",
+        adduct_string
+    )
+
+    if not match:
+        return None, (
+            f"Invalid adduct string '{adduct_string}'. "
+            "Example formats: [M+H]+, [2M+Na]+, [M+H-H2O]+"
+        )
+
+    adduct_body = match.group(1)
+    charge_string = match.group(2)
+
+    # Convert charge notation:
+    # +  -> +1
+    # -  -> -1
+    # 2+ -> +2
+    # 2- -> -2
+    if charge_string == "+":
+        z = 1
+    elif charge_string == "-":
+        z = -1
+    else:
+        sign = 1 if charge_string.endswith("+") else -1
+        z = sign * int(charge_string[:-1])
+
     try:
-        # MSAC calculates m/z given a neutral exact mass and adduct formula
-        calc_mz = msac.calculate_mz(neutral_mass, adduct_str)
-        return round(calc_mz, 4), None
+        mz = calculate_single_mz(
+            exact_mass,
+            adduct_body,
+            z=z
+        )
+
+        return mz, None
+
     except Exception as e:
-        return None, f"Invalid adduct string '{adduct_str}'. Example formats: [M+H]+, [2M+Na]+, [M+H-H2O]+"
+        return None, f"MSAC error: {e}"
         
 # --- RDKit Processing Function (InChI -> SMILES / formula / mass) ---
 from rdkit.Chem import rdinchi # Add this to your imports at the top
