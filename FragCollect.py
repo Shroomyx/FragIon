@@ -175,13 +175,13 @@ def set_entry_type(entry_type):
     st.session_state.entry_type = entry_type
 
 def build_metadata_fields():
-    """Collects the sidebar metadata that gets copied onto every table row."""
+    """Collects all sidebar metadata to copy onto every table row."""
     parent_inchi = st.session_state.get("meta_parent_inchi", "").strip()
     adduct_str = st.session_state.get("meta_adduct", "[M+H]+").strip()
     
     parent_mz = ""
     parent_smiles = ""
-    parent_neutral_mass = "" # <-- Initialize the new variable
+    parent_neutral_mass = ""
     
     if parent_inchi:
         p_data, _, _ = process_inchi(parent_inchi)
@@ -190,23 +190,28 @@ def build_metadata_fields():
             parent_mz = calc_mz if calc_mz is not None else "Invalid Adduct"
             parent_smiles = p_data['smiles']
             parent_inchi = p_data['inchi']
-            parent_neutral_mass = p_data['exact_mass'] # <-- Capture the uncharged exact mass
-            
+            parent_neutral_mass = p_data['exact_mass']
+
     return {
-        'parent_inchi': parent_inchi,
-        'parent_neutral_mass': parent_neutral_mass, # <-- Add it as a new column for the table
-        'parent_mz': parent_mz,
-        'parent_smiles': parent_smiles,
         'parent_name': st.session_state.get("meta_compound_name", ""),
         'parent_iupac': st.session_state.get("meta_iupac", ""),
         'compound_class': st.session_state.get("meta_compound_class", ""),
+        'parent_inchi': parent_inchi,
+        'parent_neutral_mass': parent_neutral_mass,
+        'parent_mz': parent_mz,
+        'parent_smiles': parent_smiles,
         'adduct': adduct_str,
         'ionization_mode': st.session_state.get("meta_ionization", ""),
+        'chromatography_type': st.session_state.get("meta_chromatography", "LC"),
         'ion_source': st.session_state.get("meta_source", ""),
         'instrument': st.session_state.get("meta_instrument", ""),
+        'collision_energy': st.session_state.get("meta_collision", ""),
         'doi': st.session_state.get("meta_doi", ""),
         'mechanism_in_reference': "Yes" if st.session_state.get("meta_mechanism", False) else "No",
+        'name_abbreviation': st.session_state.get("meta_researcher", ""),
+        'comment': st.session_state.get("meta_comment", "")
     }
+    
 def add_structure():
     inchi_val = st.session_state.inchi_input.strip()
     if not inchi_val:
@@ -291,6 +296,9 @@ with st.sidebar:
     )
     st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
     
+    if "meta_iupac" not in st.session_state:
+    st.session_state.meta_iupac = ""
+
     parent_inchi_input = st.text_input(
         "Parent Ion InChI (Neutral Structure)", 
         key="meta_parent_inchi", 
@@ -300,10 +308,12 @@ with st.sidebar:
     if parent_inchi_input.strip():
         p_data, _, p_err = process_inchi(parent_inchi_input.strip())
         if p_data:
+            # Auto-fetch IUPAC from NIH API when a new InChI is pasted
             if st.session_state.get("last_fetched_inchi") != parent_inchi_input.strip():
                 try:
                     res = requests.get(f"https://cactus.nci.nih.gov/chemical/structure/{p_data['smiles']}/iupac_name", timeout=2.5)
-                    st.session_state.meta_iupac = res.text if res.status_code == 200 else ""
+                    if res.status_code == 200:
+                        st.session_state.meta_iupac = res.text
                 except Exception:
                     pass 
                 st.session_state.last_fetched_inchi = parent_inchi_input.strip()
