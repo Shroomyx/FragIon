@@ -376,7 +376,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Resume from past CSV", type=["csv"])
     if uploaded_file is not None:
         if st.button("Load CSV into Session"):
-            prev_df = pd.read_csv(uploaded_file)
+            prev_df = pd.read_csv(uploaded_file, keep_default_na=False)
             st.session_state.session_data = prev_df.to_dict('records')
             st.success(f"Loaded {len(prev_df)} records!")
             st.rerun()
@@ -449,7 +449,10 @@ if st.session_state.last_added_caption:
 
 if st.session_state.session_data:
     with st.expander("🖼️ View All Structures in Session"):
-        structure_entries = [row for row in st.session_state.session_data if row.get('inchi') != 'NA']
+        structure_entries = [
+            row for row in st.session_state.session_data 
+            if isinstance(row.get('inchi'), str) and row.get('inchi').strip() not in ('NA', '', 'nan')
+        ]
         if not structure_entries:
             st.info("No structural data to display (only formula entries are currently in the session).")
         else:
