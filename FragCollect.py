@@ -297,7 +297,7 @@ with st.sidebar:
     st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
     
     if "meta_iupac" not in st.session_state:
-    st.session_state.meta_iupac = ""
+        st.session_state.meta_iupac = ""  # Fixed indentation (4 spaces relative to 'if')
 
     parent_inchi_input = st.text_input(
         "Parent Ion InChI (Neutral Structure)", 
