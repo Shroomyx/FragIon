@@ -21,7 +21,7 @@ MONO_MASSES = {
 }
 ELECTRON_MASS = 0.00054858
 
-# --- Initialize Session State ---
+# --- Initialize Session State ---F
 if "session_data" not in st.session_state:
     st.session_state.session_data = []
 if "inchi_input" not in st.session_state:
@@ -181,6 +181,7 @@ def build_metadata_fields():
     
     parent_mz = ""
     parent_smiles = ""
+    parent_neutral_mass = "" # <-- Initialize the new variable
     
     if parent_inchi:
         p_data, _, _ = process_inchi(parent_inchi)
@@ -189,9 +190,11 @@ def build_metadata_fields():
             parent_mz = calc_mz if calc_mz is not None else "Invalid Adduct"
             parent_smiles = p_data['smiles']
             parent_inchi = p_data['inchi']
-
+            parent_neutral_mass = p_data['exact_mass'] # <-- Capture the uncharged exact mass
+            
     return {
         'parent_inchi': parent_inchi,
+        'parent_neutral_mass': parent_neutral_mass, # <-- Add it as a new column for the table
         'parent_mz': parent_mz,
         'parent_smiles': parent_smiles,
         'parent_name': st.session_state.get("meta_compound_name", ""),
@@ -204,7 +207,6 @@ def build_metadata_fields():
         'doi': st.session_state.get("meta_doi", ""),
         'mechanism_in_reference': "Yes" if st.session_state.get("meta_mechanism", False) else "No",
     }
-
 def add_structure():
     inchi_val = st.session_state.inchi_input.strip()
     if not inchi_val:
@@ -357,7 +359,7 @@ with st.sidebar:
     
     st.subheader("Additional Information")
     st.text_input("Name Abbreviation", key="meta_researcher", placeholder="e.g., SCS")
-    st.text_input("Comments", key="meta_comment", placeholder="e.g., Re-measure pending")
+    st.text_input("Comments", key="meta_comment", placeholder="e.g., super shitty paper")
 
     st.divider()
 
