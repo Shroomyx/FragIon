@@ -496,10 +496,25 @@ if st.session_state.session_data:
     col_dl, col_clear = st.columns([3, 1])
     
     export_df = pd.DataFrame(st.session_state.session_data)
-    csv_filename = f"msms_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     csv_bytes = export_df.to_csv(index=False, quoting=1).encode('utf-8')
 
     with col_dl:
+        # Optional text input for custom filename suffix/prefix
+        custom_name = st.text_input(
+            "Custom Filename Label (optional)",
+            placeholder="e.g., batch_01_phenolics",
+            key="csv_filename_input"
+        )
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        if custom_name.strip():
+            # Sanitize spaces and strip duplicate .csv if typed by user
+            clean_name = custom_name.strip().replace(" ", "_").removesuffix(".csv")
+            csv_filename = f"msms_session_{clean_name}_{timestamp}.csv"
+        else:
+            csv_filename = f"msms_session_{timestamp}.csv"
+
         st.download_button(
             label="⬇️ Download Session CSV",
             data=csv_bytes,
@@ -507,6 +522,7 @@ if st.session_state.session_data:
             mime="text/csv",
             type="primary"
         )
+        
     with col_clear:
         if st.button("Clear Current Session"):
             st.session_state.session_data = []
