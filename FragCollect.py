@@ -377,15 +377,15 @@ with st.sidebar:
     if uploaded_file is not None:
         if st.button("Load CSV into Session"):
             try:
-                # 1. Reset stream pointer to the beginning
                 uploaded_file.seek(0)
                 
-                # 2. Parse using python engine to handle quotes & special characters cleanly
+                # sep=None auto-detects comma (,) vs semicolon (;) delimiters
                 prev_df = pd.read_csv(
                     uploaded_file, 
                     keep_default_na=False,
+                    sep=None,
                     engine="python",
-                    on_bad_lines="warn"  # Prevents full app crash if a row is malformed
+                    on_bad_lines="warn"
                 )
                 
                 st.session_state.session_data = prev_df.to_dict('records')
@@ -497,7 +497,7 @@ if st.session_state.session_data:
     
     export_df = pd.DataFrame(st.session_state.session_data)
     csv_filename = f"msms_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    csv_bytes = export_df.to_csv(index=False, quoting=csv.QUOTE_ALL).encode('utf-8')
+    csv_bytes = export_df.to_csv(index=False, quoting=1).encode('utf-8')
 
     with col_dl:
         st.download_button(
