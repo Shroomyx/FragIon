@@ -376,10 +376,24 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Resume from past CSV", type=["csv"])
     if uploaded_file is not None:
         if st.button("Load CSV into Session"):
-            prev_df = pd.read_csv(uploaded_file, keep_default_na=False)
-            st.session_state.session_data = prev_df.to_dict('records')
-            st.success(f"Loaded {len(prev_df)} records!")
-            st.rerun()
+            try:
+                # 1. Reset stream pointer to the beginning
+                uploaded_file.seek(0)
+                
+                # 2. Parse using python engine to handle quotes & special characters cleanly
+                prev_df = pd.read_csv(
+                    uploaded_file, 
+                    keep_default_na=False,
+                    engine="python",
+                    on_bad_lines="warn"  # Prevents full app crash if a row is malformed
+                )
+                
+                st.session_state.session_data = prev_df.to_dict('records')
+                st.success(f"Loaded {len(prev_df)} records!")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Could not load CSV file: {e}")
 
 # --- Main Interface ---
 st.title("MS/MS Fragment & Neutral Loss Library")
@@ -483,7 +497,7 @@ if st.session_state.session_data:
     
     export_df = pd.DataFrame(st.session_state.session_data)
     csv_filename = f"msms_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    csv_bytes = export_df.to_csv(index=False).encode('utf-8')
+    csv_bytes = export_df.to_csv(index=False, quoting=csv.QUOTE_ALL).encode('utf-8')
 
     with col_dl:
         st.download_button(
@@ -493,7 +507,6 @@ if st.session_state.session_data:
             mime="text/csv",
             type="primary"
         )
-
     with col_clear:
         if st.button("Clear Current Session"):
             st.session_state.session_data = []
