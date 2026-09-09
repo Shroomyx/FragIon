@@ -377,7 +377,7 @@ with st.sidebar:
     
     st.subheader("Additional Information")
     st.text_input("Name Abbreviation", key="meta_researcher", placeholder="e.g., SCS")
-    st.text_input("Comments", key="meta_comment", placeholder="e.g., spectral detail")
+    st.text_input("Comments", key="meta_comment", placeholder="e.g., shitty paper")
 
     st.divider()
 
