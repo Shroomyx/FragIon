@@ -21,11 +21,11 @@ MONO_MASSES = {
 }
 ELECTRON_MASS = 0.00054858
 
-# --- Initialize Session State ---F
+# --- Initialize Session State ---
 if "session_data" not in st.session_state:
     st.session_state.session_data = []
-if "inchi_input" not in st.session_state:
-    st.session_state.inchi_input = ""
+if "structure_input" not in st.session_state:
+    st.session_state.structure_input = ""
 if "formula_input" not in st.session_state:
     st.session_state.formula_input = ""
 if "entry_type" not in st.session_state:
@@ -45,7 +45,6 @@ def parse_formula_mass(formula_str):
     if not formula_str:
         return None, None
 
-    # Pull off a trailing charge notation, e.g. "+", "-", "2+", "2-"
     charge = 0
     charge_match = re.search(r'(\d*)([+-])$', formula_str)
     body = formula_str
@@ -67,29 +66,25 @@ def parse_formula_mass(formula_str):
         matched_any_chars += len(element) + len(count_str)
         count = int(count_str) if count_str else 1
         if element not in MONO_MASSES:
-            return None, None  # unknown / unsupported element symbol
+            return None, None
         total_mass += MONO_MASSES[element] * count
         clean_parts.append(f"{element}{count if count > 1 else ''}")
 
-    # Make sure the whole body was consumed by the regex (catches typos/garbage input)
     if matched_any_chars != len(body) or not clean_parts:
         return None, None
 
-    # Correct for missing/extra electrons if the formula represents a charged ion
     total_mass -= charge * ELECTRON_MASS
-
     clean_formula = "".join(clean_parts) + (charge_match.group(0) if charge_match else "")
-    return total_mass, clean_formula # Returning unrounded exact mass for precision inside adduct calc
+    return total_mass, clean_formula
 
 # ---- NATIVE ADDUCT TYPE PROCESSING ---- #
 def calculate_adduct_mz(exact_mass, adduct_string):
     """
-    Native replacement for MSAC. Converts adduct notation into exact m/z.
-    Calculates based on the neutral exact_mass and accounts for electron gain/loss.
+    Converts adduct notation into exact m/z.
+    Calculates based on neutral exact_mass and accounts for electron gain/loss.
     """
     adduct_string = adduct_string.strip().replace(" ", "")
     
-    # Parse format: [xM + Y - Z]charge (e.g., [2M+Na-H2O]2+)
     match = re.fullmatch(r"\[(\d*)M(.*?)\](\d*)([+-])", adduct_string)
     if not match:
         return None, f"Invalid adduct format '{adduct_string}'. Try [M+H]+, [2M+Na]+, [M-H]-"
@@ -106,7 +101,6 @@ def calculate_adduct_mz(exact_mass, adduct_string):
     
     mod_mass = 0.0
     if modifications:
-        # Extract things like +Na, -H2O, +H
         parts = re.findall(r'([+-])([A-Za-z0-9]+)', modifications)
         for sign, formula in parts:
             mass_part, _ = parse_formula_mass(formula)
@@ -118,21 +112,36 @@ def calculate_adduct_mz(exact_mass, adduct_string):
             else:
                 mod_mass -= mass_part
                 
-    # Calculate exact m/z: (Neutral Mass * Multiplier + Modifications - Electrons) / Charge
     mz = (exact_mass * m_mult + mod_mass - (z * ELECTRON_MASS)) / abs(z)
     return round(mz, 4), None
 
-# --- RDKit Processing Function (InChI -> SMILES / formula / mass) ---
-def process_inchi(inchi_string):
-    mol = Chem.MolFromInchi(inchi_string)
-    
+# --- Dual RDKit Processing Function (SMILES or InChI -> Both SMILES & InChI / formula / mass) ---
+def process_structure(struct_string):
+    """Parses an input string as either InChI or SMILES automatically and converts to RDKit Mol."""
+    struct_clean = struct_string.strip()
+    if not struct_clean:
+        return None, None, "Empty input provided."
+
+    mol = None
+
+    # Check if string explicitly looks like an InChI
+    if struct_clean.startswith("InChI=") or struct_clean.startswith("1S/"):
+        mol = Chem.MolFromInchi(struct_clean)
+        if mol is None:
+            try:
+                _, retcode, message = rdinchi.InchiToMol(struct_clean)
+                err_msg = message if message else f"Invalid InChI valency/syntax (Return code: {retcode})"
+            except Exception as e:
+                err_msg = str(e)
+            return None, None, f"InChI parsing error: {err_msg}"
+    else:
+        # Try SMILES first, then fall back to InChI
+        mol = Chem.MolFromSmiles(struct_clean)
+        if mol is None:
+            mol = Chem.MolFromInchi(struct_clean)
+
     if mol is None:
-        try:
-            _, retcode, message = rdinchi.InchiToMol(inchi_string)
-            error_msg = message if message else f"Unparseable syntax or invalid valency (Return code: {retcode})"
-        except Exception as e:
-            error_msg = str(e)
-        return None, None, error_msg
+        return None, None, "Invalid chemical structure. Could not parse as SMILES or InChI."
 
     img = Draw.MolToImage(mol, size=(300, 300))
     data = {
@@ -146,13 +155,13 @@ def process_inchi(inchi_string):
 
 # --- Dialog Popup for Structure Preview ---
 @st.dialog("Chemical Structure Preview")
-def preview_structure_dialog(inchi_str):
-    inchi_clean = inchi_str.strip()
-    if not inchi_clean:
-        st.warning("Please paste or enter an InChI string first.")
+def preview_structure_dialog(struct_str):
+    struct_clean = struct_str.strip()
+    if not struct_clean:
+        st.warning("Please paste or enter an InChI or SMILES string first.")
         return
 
-    chem_data, mol_img, err_msg = process_inchi(inchi_clean)
+    chem_data, mol_img, err_msg = process_structure(struct_clean)
 
     if chem_data and mol_img:
         col_img, col_info = st.columns([1, 1])
@@ -162,13 +171,14 @@ def preview_structure_dialog(inchi_str):
             st.markdown("### Molecular Properties")
             st.metric("Formula", chem_data['formula'])
             st.metric("Exact Mass", f"{chem_data['exact_mass']:.4f} Da")
-            st.markdown("**InChIKey:**")
-            st.code(chem_data['inchikey'], language=None)
             st.markdown("**Canonical SMILES:**")
             st.code(chem_data['smiles'], language=None)
+            st.markdown("**InChI:**")
+            st.code(chem_data['inchi'], language=None)
+            st.markdown("**InChIKey:**")
+            st.code(chem_data['inchikey'], language=None)
     else:
-        st.error("Invalid InChI string. RDKit could not parse the structure.")
-        st.info(f"**Diagnostic Info:**\n{err_msg}")
+        st.error(err_msg)
 
 # --- Callbacks ---
 def set_entry_type(entry_type):
@@ -176,15 +186,16 @@ def set_entry_type(entry_type):
 
 def build_metadata_fields():
     """Collects all sidebar metadata to copy onto every table row."""
-    parent_inchi = st.session_state.get("meta_parent_inchi", "").strip()
+    parent_struct = st.session_state.get("meta_parent_struct", "").strip()
     adduct_str = st.session_state.get("meta_adduct", "[M+H]+").strip()
     
     parent_mz = ""
     parent_smiles = ""
+    parent_inchi = ""
     parent_neutral_mass = ""
     
-    if parent_inchi:
-        p_data, _, _ = process_inchi(parent_inchi)
+    if parent_struct:
+        p_data, _, _ = process_structure(parent_struct)
         if p_data:
             calc_mz, err = calculate_adduct_mz(p_data['exact_mass'], adduct_str)
             parent_mz = calc_mz if calc_mz is not None else "Invalid Adduct"
@@ -197,9 +208,9 @@ def build_metadata_fields():
         'parent_iupac': st.session_state.get("meta_iupac", ""),
         'compound_class': st.session_state.get("meta_compound_class", ""),
         'parent_inchi': parent_inchi,
+        'parent_smiles': parent_smiles,
         'parent_neutral_mass': parent_neutral_mass,
         'parent_mz': parent_mz,
-        'parent_smiles': parent_smiles,
         'adduct': adduct_str,
         'ionization_mode': st.session_state.get("meta_ionization", ""),
         'chromatography_type': st.session_state.get("meta_chromatography", "LC"),
@@ -213,12 +224,12 @@ def build_metadata_fields():
     }
     
 def add_structure():
-    inchi_val = st.session_state.inchi_input.strip()
-    if not inchi_val:
-        st.session_state.feedback = ("warning", "Please paste or enter an InChI string first.")
+    struct_val = st.session_state.structure_input.strip()
+    if not struct_val:
+        st.session_state.feedback = ("warning", "Please paste or enter an InChI or SMILES string first.")
         return
 
-    chem_data, mol_img, err_msg = process_inchi(inchi_val)
+    chem_data, mol_img, err_msg = process_structure(struct_val)
 
     if chem_data:
         entry_type = st.session_state.entry_type
@@ -234,19 +245,18 @@ def add_structure():
             **build_metadata_fields(),
         }
 
-        # Duplicate check removed so you can add multiple times for +/- modes
         st.session_state.session_data.append(new_record)
         st.session_state.feedback = (
             "toast",
             f"Added {entry_type}: {chem_data['formula']} (m/z {chem_data['exact_mass']:.4f})"
         )
-        st.session_state.inchi_input = ""
+        st.session_state.structure_input = ""
         st.session_state.last_added_img = mol_img
         st.session_state.last_added_caption = (
             f"{entry_type} — {chem_data['formula']} — Exact Mass: {chem_data['exact_mass']:.4f} Da"
         )
     else:
-        st.session_state.feedback = ("error", f"Invalid InChI string.\nDiagnostic: {err_msg}")
+        st.session_state.feedback = ("error", f"Invalid Structure.\nDiagnostic: {err_msg}")
 
 def add_formula_entry():
     formula_val = st.session_state.formula_input.strip()
@@ -297,28 +307,26 @@ with st.sidebar:
     st.selectbox("Ionization Mode", ["Positive", "Negative"], key="meta_ionization")
     
     if "meta_iupac" not in st.session_state:
-        st.session_state.meta_iupac = ""  # Fixed indentation (4 spaces relative to 'if')
+        st.session_state.meta_iupac = ""
 
-    parent_inchi_input = st.text_input(
-        "Parent Ion InChI (Neutral Structure)", 
-        key="meta_parent_inchi", 
-        placeholder="InChI=1S/..."
+    parent_struct_input = st.text_input(
+        "Parent Ion Structure (InChI or SMILES)", 
+        key="meta_parent_struct", 
+        placeholder="InChI=1S/... or SMILES"
     )
     
-    if parent_inchi_input.strip():
-        p_data, _, p_err = process_inchi(parent_inchi_input.strip())
+    if parent_struct_input.strip():
+        p_data, _, p_err = process_structure(parent_struct_input.strip())
         if p_data:
-            # Auto-fetch IUPAC from NIH API when a new InChI is pasted
-            if st.session_state.get("last_fetched_inchi") != parent_inchi_input.strip():
+            if st.session_state.get("last_fetched_struct") != parent_struct_input.strip():
                 try:
                     res = requests.get(f"https://cactus.nci.nih.gov/chemical/structure/{p_data['smiles']}/iupac_name", timeout=2.5)
                     if res.status_code == 200:
                         st.session_state.meta_iupac = res.text
                 except Exception:
                     pass 
-                st.session_state.last_fetched_inchi = parent_inchi_input.strip()
+                st.session_state.last_fetched_struct = parent_struct_input.strip()
             
-            # Compute charged parent m/z using our new native function
             parent_ion_mz, adduct_error = calculate_adduct_mz(p_data['exact_mass'], adduct_input)
             
             if parent_ion_mz is not None:
@@ -334,7 +342,7 @@ with st.sidebar:
                         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         'type': 'Parent ion',
                         'formula': p_data['formula'],
-                        'exact_mass': parent_ion_mz,  # Charged m/z natively calculated
+                        'exact_mass': parent_ion_mz,
                         'smiles': p_data['smiles'],
                         'inchi': p_data['inchi'],
                         'inchikey': p_data['inchikey'],
@@ -350,7 +358,7 @@ with st.sidebar:
             else:
                 st.error(adduct_error)
         else:
-            st.error("Invalid InChI for Parent Ion.")
+            st.error("Invalid SMILES or InChI for Parent Ion.")
 
     st.subheader("Instrumentation")
     st.selectbox("Chromatography Type", ["LC", "GC"], key="meta_chromatography")
@@ -369,7 +377,7 @@ with st.sidebar:
     
     st.subheader("Additional Information")
     st.text_input("Name Abbreviation", key="meta_researcher", placeholder="e.g., SCS")
-    st.text_input("Comments", key="meta_comment", placeholder="e.g., super shitty paper")
+    st.text_input("Comments", key="meta_comment", placeholder="e.g., spectral detail")
 
     st.divider()
 
@@ -378,8 +386,6 @@ with st.sidebar:
         if st.button("Load CSV into Session"):
             try:
                 uploaded_file.seek(0)
-                
-                # sep=None auto-detects comma (,) vs semicolon (;) delimiters
                 prev_df = pd.read_csv(
                     uploaded_file, 
                     keep_default_na=False,
@@ -418,7 +424,7 @@ st.caption(f"Currently adding as: **{st.session_state.entry_type}**")
 
 col_input, col_add = st.columns([4.5, 1.5])
 with col_input:
-    st.text_input("InChI String:", key="inchi_input", placeholder="InChI=1S/...")
+    st.text_input("InChI or SMILES String:", key="structure_input", placeholder="Paste InChI=... or SMILES (e.g. C1=CC=CC=C1)")
 
 with col_add:
     st.write("")
@@ -428,7 +434,7 @@ with col_add:
 col_check, _ = st.columns([1.5, 4.4])
 with col_check:
     if st.button("🔍 Check Structure", use_container_width=True):
-        preview_structure_dialog(st.session_state.inchi_input)
+        preview_structure_dialog(st.session_state.structure_input)
 
 with st.expander("➕ Add a formula-only entry (no structure available)"):
     col_f_input, col_f_add = st.columns([4.5, 1.5])
@@ -465,14 +471,14 @@ if st.session_state.session_data:
     with st.expander("🖼️ View All Structures in Session"):
         structure_entries = [
             row for row in st.session_state.session_data 
-            if isinstance(row.get('inchi'), str) and row.get('inchi').strip() not in ('NA', '', 'nan')
+            if isinstance(row.get('smiles'), str) and row.get('smiles').strip() not in ('NA', '', 'nan')
         ]
         if not structure_entries:
             st.info("No structural data to display (only formula entries are currently in the session).")
         else:
             cols = st.columns(4)
             for index, row in enumerate(structure_entries):
-                mol = Chem.MolFromInchi(row['inchi'])
+                mol = Chem.MolFromSmiles(row['smiles'])
                 if mol:
                     img = Draw.MolToImage(mol, size=(800, 800))
                     with cols[index % 4]:
@@ -484,7 +490,6 @@ if st.session_state.session_data:
 st.subheader("Current Session Entries")
 
 if st.session_state.session_data:
-    # Removed the hardcoded `key=` so that programmatic appending doesn't crash the widget's internal edit state
     st.session_state.session_data = st.data_editor(
         st.session_state.session_data,
         num_rows="dynamic",
@@ -499,7 +504,6 @@ if st.session_state.session_data:
     csv_bytes = export_df.to_csv(index=False, quoting=1).encode('utf-8')
 
     with col_dl:
-        # Optional text input for custom filename suffix/prefix
         custom_name = st.text_input(
             "Custom Filename Label (optional)",
             placeholder="e.g., batch_01_phenolics",
@@ -509,7 +513,6 @@ if st.session_state.session_data:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         if custom_name.strip():
-            # Sanitize spaces and strip duplicate .csv if typed by user
             clean_name = custom_name.strip().replace(" ", "_").removesuffix(".csv")
             csv_filename = f"msms_session_{clean_name}_{timestamp}.csv"
         else:
@@ -530,4 +533,4 @@ if st.session_state.session_data:
             st.session_state.last_added_caption = None
             st.rerun()
 else:
-    st.info("No entries yet in this session. Select an entry type, paste an InChI (or formula), and add it to get started.")
+    st.info("No entries yet in this session. Select an entry type, paste an InChI or SMILES (or formula), and add it to get started.")
